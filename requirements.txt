@@ -1,0 +1,4 @@
+numpy>=1.24
+scipy>=1.10
+plotly>=5.18  # only its bundled plotly.js is used, so the web page also works offline
+pytest>=7.0
