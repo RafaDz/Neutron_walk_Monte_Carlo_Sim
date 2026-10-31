@@ -13,21 +13,34 @@ The original project report is kept in `Neutron_shielding_Monte_Carlo.ipynb`.
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
+python server.py --open
 ```
 
-Then open the URL that Streamlit prints (usually http://localhost:8501).
+This opens http://localhost:8000 in your browser (use `--port` to pick another port).
+The front-end is plain HTML, CSS and JavaScript in `web/`. `server.py` serves it and runs the
+simulations through a small JSON API, using only the Python standard library. Plotly.js is served
+from the installed `plotly` package, so the page also works offline.
 
 ## The interface
 
 | Tab | What it does |
 | --- | --- |
-| **Materials** | Edit density, molar mass and absorption/scattering cross-sections of any material, or add your own. Shows macroscopic cross-sections, mean free paths, absorption probability per collision and diffusion length. |
+| **Materials** | Edit density, molar mass and absorption/scattering cross-sections of any material, or add your own. Shows macroscopic cross-sections, mean free paths, absorption probability per collision and diffusion length. Edits are saved in the browser. |
 | **Shield simulation** | Build a stack of layers (any materials, any thicknesses). Shows reflected/transmitted/absorbed fractions with errors, absorption in each layer, a histogram of absorption depth and 3D neutron trajectories. |
 | **Thickness sweep** | Simulates single-material slabs over a range of thicknesses, plots all three fractions and fits ln(T) against thickness to find the attenuation length. The fit range is adjustable, and the results can be downloaded as CSV. |
 | **Model** | Describes the physics model and its limitations. |
 
 The sidebar sets the number of neutrons per trial, the number of trials used for error estimates, and the random seed.
+
+### API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/materials` | Built-in material library |
+| `POST /api/derive` | Derived quantities for a list of materials |
+| `POST /api/simulate` | Simulate a layer stack |
+| `POST /api/sweep` | Thickness sweep for one material |
+| `POST /api/fit` | Attenuation-length fit over a thickness range |
 
 ## Using the package from Python
 
@@ -58,8 +71,9 @@ neutron_sim/
   materials.py   Material class and the material library
   transport.py   Vectorised Monte Carlo transport (Woodcock tracking)
   analysis.py    Repeated trials, thickness sweeps, attenuation fits
-app.py           Streamlit front-end
-tests/           pytest tests, including analytic checks
+server.py        Web server and JSON API
+web/             HTML/CSS/JS front-end
+tests/           pytest tests, including analytic checks and API tests
 ```
 
 Run the tests with `pytest`.

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neutron Shielding Monte Carlo</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/vendor/plotly.min.js"></script>
+  <script>window.Plotly || document.write('<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>')</script>
+</head>
+<body>
+  <aside class="sidebar">
+    <h2>Monte Carlo settings</h2>
+    <label class="field">
+      <span>Neutrons per trial</span>
+      <input type="number" id="n-neutrons" min="100" max="200000" step="1000" value="10000">
+    </label>
+    <label class="field">
+      <span>Trials (for error estimates)</span>
+      <input type="number" id="n-trials" min="2" max="50" value="10">
+    </label>
+    <label class="field">
+      <span>Random seed</span>
+      <input type="number" id="seed" min="0" step="1" value="0">
+    </label>
+    <p class="hint">Errors are standard errors of the mean over the trials. The same seed and settings always give the same results.</p>
+  </aside>
+
+  <main>
+    <header>
+      <h1>Neutron Shielding Monte Carlo</h1>
+      <p class="hint">Thermal neutrons hit a stack of shielding layers at normal incidence. Each neutron is followed
+        until it is reflected (x &lt; 0), transmitted (beyond the last layer) or absorbed.</p>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="materials" role="tab">Materials</button>
+      <button class="tab" data-tab="stack" role="tab">Shield simulation</button>
+      <button class="tab" data-tab="sweep" role="tab">Thickness sweep</button>
+      <button class="tab" data-tab="model" role="tab">Model</button>
+    </nav>
+
+    <!-- Materials -->
+    <section class="panel active" id="panel-materials">
+      <h2>Material library</h2>
+      <p>Edit any property, or add your own material. Cross-sections are per formula unit (molecule or atom)
+        for thermal neutrons, in barns (1 b = 10<sup>−24</sup> cm²). Changes are saved in this browser.</p>
+      <div class="table-wrap">
+        <table class="editable" id="materials-table">
+          <thead>
+            <tr>
+              <th>Material</th><th>Density (g/cm³)</th><th>Molar mass (g/mol)</th>
+              <th>σ<sub>absorption</sub> (b)</th><th>σ<sub>scattering</sub> (b)</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="add-material">+ Add material</button>
+        <button class="secondary" id="reset-materials">Reset to default materials</button>
+      </div>
+
+      <h2>Derived quantities</h2>
+      <div class="table-wrap">
+        <table id="derived-table">
+          <thead>
+            <tr>
+              <th>Material</th><th>Σ<sub>a</sub> (cm⁻¹)</th><th>Σ<sub>s</sub> (cm⁻¹)</th><th>Σ<sub>t</sub> (cm⁻¹)</th>
+              <th>λ<sub>a</sub> (cm)</th><th>λ<sub>s</sub> (cm)</th><th>λ<sub>t</sub> (cm)</th>
+              <th>P(absorption) per collision</th><th>Diffusion length (cm)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">Diffusion length L = 1/√(3 Σ<sub>a</sub> Σ<sub>t</sub>) is the diffusion-theory estimate of the
+        attenuation length in a thick slab (isotropic scattering, Σ<sub>a</sub> ≪ Σ<sub>t</sub>).</p>
+    </section>
+
+    <!-- Shield simulation -->
+    <section class="panel" id="panel-stack">
+      <h2>Layer stack</h2>
+      <p>Layers are listed in the order the beam meets them. Layers of different materials use Woodcock (delta) tracking.</p>
+      <div class="table-wrap narrow">
+        <table class="editable" id="layers-table">
+          <thead><tr><th>#</th><th>Material</th><th>Thickness (cm)</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="add-layer">+ Add layer</button>
+      </div>
+      <label class="field inline">
+        <span>Trajectories to draw</span>
+        <input type="number" id="n-tracked" min="0" max="30" value="5">
+      </label>
+      <div class="actions">
+        <button class="primary" id="run-stack">Run simulation</button>
+        <span class="status" id="stack-status"></span>
+      </div>
+      <div class="notice hidden" id="stack-stale">Settings changed since the last run. Press <b>Run simulation</b> to update.</div>
+
+      <div id="stack-results" class="hidden">
+        <div class="cards">
+          <div class="card reflected"><div class="label">Reflected</div><div class="value" id="res-reflected"></div><div class="error" id="err-reflected"></div></div>
+          <div class="card transmitted"><div class="label">Transmitted</div><div class="value" id="res-transmitted"></div><div class="error" id="err-transmitted"></div></div>
+          <div class="card absorbed"><div class="label">Absorbed</div><div class="value" id="res-absorbed"></div><div class="error" id="err-absorbed"></div></div>
+        </div>
+        <p class="hint" id="stack-summary"></p>
+        <div class="grid-2">
+          <div class="plot" id="plot-fates"></div>
+          <div class="plot" id="plot-layers"></div>
+        </div>
+        <div class="plot" id="plot-depths"></div>
+        <div class="plot tall" id="plot-paths"></div>
+      </div>
+    </section>
+
+    <!-- Thickness sweep -->
+    <section class="panel" id="panel-sweep">
+      <h2>Transmission against thickness</h2>
+      <p>Simulates single-material slabs over a range of thicknesses and fits ln(T) = −L/λ + c to find the attenuation length λ.</p>
+      <div class="field">
+        <span>Materials</span>
+        <div class="chips" id="sweep-materials"></div>
+      </div>
+      <div class="row">
+        <label class="field"><span>Minimum thickness (cm)</span><input type="number" id="sweep-min" min="0.01" step="0.5" value="1"></label>
+        <label class="field"><span>Maximum thickness (cm)</span><input type="number" id="sweep-max" min="0.02" step="0.5" value="20"></label>
+        <label class="field"><span>Number of thicknesses</span><input type="number" id="sweep-points" min="3" max="60" value="20"></label>
+      </div>
+      <div class="actions">
+        <button class="primary" id="run-sweep">Run sweep</button>
+        <span class="status" id="sweep-status"></span>
+      </div>
+      <div class="progress hidden" id="sweep-progress"><div class="bar"></div></div>
+      <div class="notice hidden" id="sweep-stale">Settings changed since the last run. Press <b>Run sweep</b> to update.</div>
+
+      <div id="sweep-results" class="hidden">
+        <div class="plot" id="plot-sweep"></div>
+        <div class="row">
+          <label class="field"><span>Fit from thickness (cm)</span><input type="number" id="fit-min" step="0.5"></label>
+          <label class="field"><span>Fit to thickness (cm)</span><input type="number" id="fit-max" step="0.5"></label>
+        </div>
+        <p class="hint">Transmission is only exponential in thick slabs; start the fit further in to exclude the build-up region at small thicknesses.</p>
+        <div class="plot" id="plot-fit"></div>
+        <div class="table-wrap">
+          <table id="fit-table">
+            <thead>
+              <tr><th>Material</th><th>Attenuation length λ (cm)</th><th>Error (cm)</th><th>Reduced χ²</th><th>Points used</th><th>Diffusion length (cm)</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="hint">No fit is shown when fewer than three thicknesses in the range have any transmitted neutrons.
+          A large reduced χ² means transmission is not purely exponential over the fit range.</p>
+        <div class="actions"><button class="secondary" id="download-csv">Download sweep results (CSV)</button></div>
+      </div>
+    </section>
+
+    <!-- Model -->
+    <section class="panel prose" id="panel-model">
+      <h2>Physical model</h2>
+      <ul>
+        <li>A mono-energetic beam of <b>thermal neutrons</b> enters the shield at x = 0, moving in +x.</li>
+        <li>Layers are <b>infinite slabs</b> in y and z, stacked along x.</li>
+        <li>The distance to the next collision is exponential with mean free path λ = 1/Σ<sub>t</sub>, where
+          Σ = ρ N<sub>A</sub> σ / M is the macroscopic cross-section.</li>
+        <li>At a collision the neutron is <b>absorbed</b> with probability Σ<sub>a</sub>/Σ<sub>t</sub>, otherwise it
+          <b>scatters isotropically</b> with no energy loss (one-speed model).</li>
+        <li>A neutron is <b>reflected</b> when x &lt; 0 and <b>transmitted</b> when it passes the last layer.</li>
+      </ul>
+      <h2>Woodcock (delta) tracking</h2>
+      <p>Flight distances are sampled with the largest cross-section in the stack, Σ<sub>max</sub>. At a collision point in a
+        layer with Σ<sub>t</sub>, the collision is real with probability Σ<sub>t</sub>/Σ<sub>max</sub>; otherwise it is
+        <i>fictitious</i> and the neutron continues in the same direction. This gives exact results without having to find
+        where each flight crosses a layer boundary. For a single layer every collision is real.</p>
+      <h2>Limitations</h2>
+      <ul>
+        <li>No energy dependence: thermal cross-sections are used throughout, so moderation and energy-dependent absorption
+          (for example 1/v absorbers) are not modelled.</li>
+        <li>Scattering is isotropic in the laboratory frame.</li>
+        <li>Cross-sections for hydrogenous materials depend on chemical binding; the library values are approximate.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
